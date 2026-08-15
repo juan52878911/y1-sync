@@ -1,0 +1,36 @@
+diff --git a/apps/gui/skin_engine/skin_render.c b/apps/gui/skin_engine/skin_render.c
+index 5c731e0676..a8279b1d3c 100644
+--- a/apps/gui/skin_engine/skin_render.c
++++ b/apps/gui/skin_engine/skin_render.c
+@@ -765,6 +765,15 @@ void skin_render_viewport(struct skin_element* viewport, struct gui_wps *gwps,
+     struct align_pos * align = &info.align;
+     bool needs_update, update_all = false;
+     skin_buffer = get_skin_buffer(gwps->data);
++    /* get_skin_buffer() returns NULL when the skin's buflib handle is
++     * invalid (e.g. the allocation was freed or moved while the tagcache
++     * was writing runtime data).  A NULL base must not be used with
++     * SKINOFFSETTOPTR(): for any offset >= 0 the macro yields the offset
++     * itself, which is a small *non-NULL* pointer.  It therefore slips
++     * past every "if (!ptr) return;" check below and is dereferenced,
++     * crashing with SIGSEGV at a low address. */
++    if (!skin_buffer)
++        return;
+     /* Set images to not to be displayed */
+     struct skin_token_list *imglist = SKINOFFSETTOPTR(skin_buffer, gwps->data->images);
+     while (imglist)
+@@ -853,6 +862,15 @@ void skin_render(struct gui_wps *gwps, unsigned refresh_mode)
+ 
+     int old_refresh_mode = refresh_mode;
+     skin_buffer = get_skin_buffer(gwps->data);
++    /* get_skin_buffer() returns NULL when the skin's buflib handle is
++     * invalid (e.g. the allocation was freed or moved while the tagcache
++     * was writing runtime data).  A NULL base must not be used with
++     * SKINOFFSETTOPTR(): for any offset >= 0 the macro yields the offset
++     * itself, which is a small *non-NULL* pointer.  It therefore slips
++     * past every "if (!ptr) return;" check below and is dereferenced,
++     * crashing with SIGSEGV at a low address. */
++    if (!skin_buffer)
++        return;
+ 
+     /* Framebuffer is likely dirty */
+     if ((refresh_mode&SKIN_REFRESH_ALL) == SKIN_REFRESH_ALL)

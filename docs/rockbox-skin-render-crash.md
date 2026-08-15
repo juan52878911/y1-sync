@@ -157,11 +157,50 @@ integrado (built-in) si la recarga falla, en lugar de una estructura rota.
 
 ---
 
+## 3.bis  VALIDADO (2026-08-15)
+
+El mecanismo **ya no es hipótesis**. `patches/proof-skinoffsettoptr.c` usa la
+macro copiada literalmente del fuente y demuestra:
+
+```
+CASO                          RESULTADO   ¿PASA if(!ptr)?
+base válida, offset 8         0x104a35bb8  sí (correcto)
+base NULL, offset -1          0x0          NO -> la guarda funciona
+base NULL, offset 0x1234      0x1234       SÍ -> BURLA LA GUARDA
+  -> desreferenciar 0x1234 -> SIGSEGV
+```
+
+Además se compiló el **simulador de upstream master** (`--target=ipod6g
+--type=s`), se aplicó el parche a los dos sitios y enlaza y arranca sin
+problemas. El diff está en `patches/01-upstream-skin_render-null-guard.patch`
+(18 líneas, 1 archivo).
+
+**El fallo sigue presente en el master oficial de agosto de 2026**: se verificó
+que `get_skin_buffer()` sigue devolviendo NULL, que `skin_render()` sigue sin
+comprobarlo y que la macro no ha cambiado. No es un problema del port del Y1.
+
+### Lo que NO está demostrado
+
+Por qué buflib invalida el manejador del tema en el aparato real. Eso depende
+de la presión de memoria con la biblioteca completa y el ajuste activo, y no se
+reproduce en un Mac. El parche protege el camino con independencia de la causa,
+pero la causa raíz sigue siendo hipótesis fundada.
+
 ## 4. Cómo compilarlo
 
-**Aviso honesto**: no conozco la receta exacta del port del Y1. Es un port
-comunitario y el árbol de Rockbox oficial no lo incluye. Habría que partir del
-repositorio del port, no del oficial, o localizar sus parches.
+**El port es** [`rockbox-y1/rockbox`](https://github.com/rockbox-y1/rockbox)
+(*Innioasis Y1 Rockbox Android fork*), rama por defecto `rebase-upstream`. El
+commit de la build instalada, `13861b2e0ead`, lo firma `rockbox-y1`.
+
+**Ese fork no compila como simulador**: mete `#include <jni.h>` sin guarda en
+`apps/menu.c` y código JNI en `tagcache.c`, `root_menu.c` y `settings_list.c`.
+Es Android-only por diseño. Por eso la validación se hizo sobre el master
+oficial, donde el código que falla es idéntico.
+
+Notas de entorno en macOS con Apple Silicon: el `configure` de master eligió
+`gcc-16`, que no existe en Homebrew; se resolvió con enlaces
+`gcc-16 -> gcc-15` (y `gcc-ar-16`, `gcc-nm-16`, `gcc-ranlib-16`) en el PATH.
+SDL2 sirve tal cual: esta versión ya usa `sdl2-config`.
 
 Con el árbol correcto, el flujo estándar de Rockbox para Android es:
 

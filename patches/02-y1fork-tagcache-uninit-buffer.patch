@@ -1,0 +1,33 @@
+Para: rockbox-y1/rockbox (rama rebase-upstream)
+
+apps/tagcache.c: usar el valor de retorno de handle_special_dirs()
+
+Dos problemas en check_dir():
+
+1. handle_special_dirs() solo existe en builds hosted/APPLICATION
+   (firmware/target/hosted/filesystem-app.c). La llamada sin guarda rompe
+   la compilacion de simulador y nativa con "implicit declaration".
+
+2. Mas grave: la funcion DEVUELVE la ruta resuelta y solo escribe en buf
+   cuando hay una traduccion que aplicar (<HOME>, /.rockbox, multidrive).
+   En el caso normal devuelve la ruta original y deja buf intacto. El
+   codigo ignora el retorno y usa playlist_dir igualmente, de modo que
+   compara contra memoria de pila SIN INICIALIZAR en cada directorio
+   escaneado.
+
+--- a/apps/tagcache.c
++++ b/apps/tagcache.c
+@@ -5036,7 +5036,12 @@ static bool check_dir(const char *dirname, int add_files)
+     char playlist_dir[MAX_PATH];
+     const char *pl_dir = PLAYLIST_CATALOG_DEFAULT_DIR;
+     if (global_settings.playlist_catalog_dir[0] != '\0')
+         pl_dir = (const char*)global_settings.playlist_catalog_dir;
+-    handle_special_dirs(pl_dir, 0, playlist_dir, sizeof(playlist_dir));
++#ifdef APPLICATION
++    /* devuelve la ruta resuelta; solo escribe en buf si hubo traduccion */
++    pl_dir = handle_special_dirs(pl_dir, 0, playlist_dir, sizeof(playlist_dir));
++#endif
++    strlcpy(playlist_dir, pl_dir, sizeof(playlist_dir));
+     pl_dir = playlist_dir;
+ 
+     /* Skip scanning the playlist directory entirely */
