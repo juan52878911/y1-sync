@@ -50,12 +50,43 @@ CREATE TABLE IF NOT EXISTS sync_log(
   tags_fixed INT, plays_added INT, notes TEXT);
 """
 
+# Columnas anadidas despues de la primera version del esquema. CREATE TABLE
+# IF NOT EXISTS no toca una tabla existente, asi que hay que migrarla a mano.
+MIGRATIONS = {
+    "tracks": [
+        ("art_w", "INTEGER"),
+        ("art_h", "INTEGER"),
+        ("added_at", "TEXT"),
+    ],
+}
+
+def _migrate(con: sqlite3.Connection) -> list[str]:
+    aplicadas = []
+    for tabla, columnas in MIGRATIONS.items():
+        existe = con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (tabla,)
+        ).fetchone()
+        if not existe:
+            continue
+        actuales = {r[1] for r in con.execute(f"PRAGMA table_info({tabla})")}
+        for nombre, tipo in columnas:
+            if nombre not in actuales:
+                con.execute(f"ALTER TABLE {tabla} ADD COLUMN {nombre} {tipo}")
+                aplicadas.append(f"{tabla}.{nombre}")
+    if aplicadas:
+        con.commit()
+    return aplicadas
+
 def connect(path: Path | None = None) -> sqlite3.Connection:
     p = Path(path or DB_PATH)
     p.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(p)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    nuevas = _migrate(con)
+    if nuevas:
+        from .util import log
+        log.info("Base migrada: columnas anadidas %s", ", ".join(nuevas))
     return con
 
 def known_paths(con: sqlite3.Connection) -> set[str]:
