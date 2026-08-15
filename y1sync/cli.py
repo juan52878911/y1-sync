@@ -26,6 +26,7 @@ def sync(card: Path, *, dry: bool = False, no_mb: bool = False,
         macos.clean(card / MUSIC_DIR)
         macos.prevent(card)
 
+    tocados: list[Path] = []
     conocidas = db.known_paths(con)
     nuevos = [p for p in scan.walk_music(card) if str(p.relative_to(card)) not in conocidas]
     log.info("%sArchivos nuevos detectados: %d", prefijo, len(nuevos))
@@ -39,8 +40,9 @@ def sync(card: Path, *, dry: bool = False, no_mb: bool = False,
     for (artista, album), rutas in sorted(por_album.items()):
         log.info("%sAlbum nuevo: %s / %s  (%d pistas)", prefijo, artista, album, len(rutas))
         filas = []
+        leidas = {f["path"]: f for f in scan.read_many(card, rutas)}
         for p in rutas:
-            fila = scan.read_track(card, p)
+            fila = leidas.get(str(p.relative_to(card)))
             if not fila:
                 log.warning("  no se pudo leer %s", p.name); continue
 
@@ -48,6 +50,7 @@ def sync(card: Path, *, dry: bool = False, no_mb: bool = False,
                 log.info("  %s esta a %d Hz/%d bits", p.name, fila["samplerate"], fila["bits"])
                 if not dry:
                     ok, antes, despues = audio.convert(p, card)
+                    tocados.append(p)
                     if ok:
                         stats["converted"] += 1
                         stats["bytes_saved"] += antes - despues
@@ -58,6 +61,7 @@ def sync(card: Path, *, dry: bool = False, no_mb: bool = False,
             if not no_art and fila.get("art_w") and fila["art_w"] > ARTWORK_MAX:
                 if not dry:
                     cambiado, detalle = artwork.process_flac(p)
+                    tocados.append(p)
                     if cambiado:
                         log.info("  caratula %s: %s", p.name, detalle)
                         stats["art_resized"] += 1
@@ -74,6 +78,7 @@ def sync(card: Path, *, dry: bool = False, no_mb: bool = False,
             log.info("  albumartist %r -> %r en %s",
                      fila["albumartist"], correcto, fila["filename"])
             if not dry and tags.write_tag(card / fila["path"], "ALBUMARTIST", correcto):
+                tocados.append(card / fila["path"])
                 fila["albumartist"] = correcto
                 stats["tags_fixed"] += 1
 
@@ -84,6 +89,7 @@ def sync(card: Path, *, dry: bool = False, no_mb: bool = False,
                 log.info("  genero -> %s", g)
                 for fila in filas:
                     if not dry and tags.write_tag(card / fila["path"], "GENRE", g):
+                        tocados.append(card / fila["path"])
                         fila["genre"] = g
                         stats["tags_fixed"] += 1
                     elif dry:
@@ -102,7 +108,12 @@ def sync(card: Path, *, dry: bool = False, no_mb: bool = False,
         playlists.repair(con, card)
         playlists.reindex(con, card)
         stats["plays_added"] = plays.ingest(con, card)
-        macos.clean(card / MUSIC_DIR)
+        # La segunda limpieza solo hace falta si escribimos en la tarjeta;
+        # cada pasada recorre el arbol entero por USB.
+        if tocados:
+            n = macos.clean_paths(tocados)
+            if n:
+                log.info("Limpieza dirigida: %d companeros ._ eliminados", n)
         con.execute("INSERT INTO sync_log(new_tracks,converted,art_resized,tags_fixed,"
                     "plays_added,notes) VALUES(?,?,?,?,?,?)",
                     (stats["new_tracks"], stats["converted"], stats["art_resized"],

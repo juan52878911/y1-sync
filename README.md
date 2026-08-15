@@ -124,6 +124,44 @@ adb shell setprop persist.sys.timezone America/Bogota
 adb shell date "$(date +%Y%m%d.%H%M%S)"
 ```
 
+## Rendimiento
+
+Medido sobre una biblioteca de 2.864 pistas en una microSD por USB.
+
+| Operación | Antes | Después | Mejora |
+|---|---:|---:|---:|
+| Lectura de un archivo | 177 ms | **11,9 ms** | 15× |
+| `playlists.reindex` | 0,36 s | **0,00 s** | — |
+| `plays.ingest` | 0,21 s | **0,01 s** | 21× |
+| Sync sin novedades | 1,99 s | **0,65 s** | 3× |
+| Reescaneo completo (2.864) | ~8,5 min | **~34 s** | 15× |
+
+Uso de memoria: **38 MB**, constante — nada se carga entero en RAM.
+
+### De dónde salió cada mejora
+
+**Un solo subproceso por archivo.** Se usaban dos: `metaflac` para las
+etiquetas y `ffprobe` solo para las dimensiones de la carátula. Medido:
+metaflac 5,4 ms contra ffprobe 25,5 ms. Pero `metaflac --list` ya expone
+`width`/`height` del bloque PICTURE, así que basta una llamada. (No se pueden
+combinar `--show-*` con `--list`: metaflac rechaza mezclar operaciones
+shorthand y major.)
+
+**Paralelismo donde el coste es esperar.** La lectura secuencial se quedaba en
+142 ms/archivo aun con un solo subproceso: el cuello es la latencia del USB,
+no la CPU. Con 8 hilos solapando esperas baja a 11,9 ms. El GIL no estorba
+porque el tiempo se pasa esperando, no calculando.
+
+**Consultas por lote.** `reindex` hacía un `SELECT` por vínculo — 2.919
+consultas. Ahora carga un diccionario de una vez y usa `executemany`. Lo mismo
+en la ingesta del historial, donde además `INSERT OR IGNORE` sustituye a un
+`try/except` por fila sin perder idempotencia.
+
+**Un recorrido en lugar de cuatro.** `macos.clean` caminaba el árbol cuatro
+veces (`xattr`, `dot_clean` y dos `rglob`). Ahora es un barrido, y la limpieza
+posterior a escribir es **dirigida a los archivos tocados** en vez de a los
+79 GB completos.
+
 ## Estructura
 
 ```

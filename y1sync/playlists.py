@@ -72,6 +72,9 @@ def reindex(con, card: Path) -> None:
     pl_dir = card / "Playlists"
     if not pl_dir.is_dir():
         return
+    # Un solo barrido en memoria en lugar de un SELECT por entrada: con 2919
+    # vinculos eran 2919 consultas.
+    ids = {r[0]: r[1] for r in con.execute("SELECT device_path, id FROM tracks")}
     for f in sorted(pl_dir.glob("*.m3u8")):
         if f.name.startswith("._"):
             continue
@@ -79,8 +82,6 @@ def reindex(con, card: Path) -> None:
                    if l.strip() and not l.startswith("#")]
         con.execute("INSERT OR IGNORE INTO playlists(name,n) VALUES(?,?)", (f.stem, len(entries)))
         pid = con.execute("SELECT id FROM playlists WHERE name=?", (f.stem,)).fetchone()[0]
-        for i, e in enumerate(entries):
-            t = con.execute("SELECT id FROM tracks WHERE device_path=?", (e,)).fetchone()
-            if t:
-                con.execute("INSERT INTO playlist_tracks VALUES(?,?,?)", (pid, t[0], i))
+        filas = [(pid, ids[e], i) for i, e in enumerate(entries) if e in ids]
+        con.executemany("INSERT INTO playlist_tracks VALUES(?,?,?)", filas)
     con.commit()

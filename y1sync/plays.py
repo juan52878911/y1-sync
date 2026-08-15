@@ -15,7 +15,8 @@ def ingest(con, card: Path) -> int:
     logf = card / ".rockbox" / "playback.log"
     if not logf.exists():
         return 0
-    nuevas = 0
+    ids = {r[0]: r[1] for r in con.execute("SELECT device_path, id FROM tracks")}
+    lote = []
     for line in logf.read_text(encoding="utf-8", errors="replace").splitlines():
         parts = line.split(":", 3)
         if len(parts) != 4 or not parts[0].isdigit():
@@ -27,17 +28,16 @@ def ingest(con, card: Path) -> int:
         if not path:
             continue
         pct = round(100 * msp / mst, 1) if mst else 0
-        row = con.execute("SELECT id FROM tracks WHERE device_path=?", (path,)).fetchone()
-        try:
-            con.execute(
-                "INSERT INTO plays(ts,ts_reliable,ms_played,ms_total,pct,completed,"
-                "device_path,track_id) VALUES(?,?,?,?,?,?,?,?)",
-                (ts, 1 if ts >= CLOCK_FIXED_TS else 0, msp, mst, pct,
-                 1 if pct >= 50 else 0, path, row[0] if row else None))
-            nuevas += 1
-        except Exception:
-            pass   # UNIQUE: ya estaba registrada, la ingesta es idempotente
+        lote.append((ts, 1 if ts >= CLOCK_FIXED_TS else 0, msp, mst, pct,
+                     1 if pct >= 50 else 0, path, ids.get(path)))
+    antes = con.execute("SELECT COUNT(*) FROM plays").fetchone()[0]
+    # INSERT OR IGNORE deja que la restriccion UNIQUE descarte las repetidas;
+    # asi la ingesta sigue siendo idempotente sin un try por fila.
+    con.executemany(
+        "INSERT OR IGNORE INTO plays(ts,ts_reliable,ms_played,ms_total,pct,"
+        "completed,device_path,track_id) VALUES(?,?,?,?,?,?,?,?)", lote)
     con.commit()
+    nuevas = con.execute("SELECT COUNT(*) FROM plays").fetchone()[0] - antes
     if nuevas:
         log.info("Historial: %d reproducciones nuevas", nuevas)
     return nuevas
