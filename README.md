@@ -30,9 +30,28 @@ brew install flac ffmpeg          # metaflac y ffmpeg
 ## Uso manual
 
 ```bash
-python3 -m y1sync sync --dry-run   # ver qué haría, sin tocar nada
-python3 -m y1sync sync             # sincronizar
-python3 -m y1sync stats            # resumen de la biblioteca
+./bin/y1sync sync --dry-run   # ver qué haría, sin tocar nada
+./bin/y1sync sync             # sincronizar
+./bin/y1sync stats            # resumen de la biblioteca
+```
+
+`bin/y1sync` es un lanzador que filtra ruido de `hashlib`; `python3 -m y1sync`
+funciona igual.
+
+### Si ves tracebacks de `blake2b` / `blake2s`
+
+Tu Python fue compilado contra una OpenSSL sin esos algoritmos (frecuente con
+pyenv). Son inofensivos, pero tienen un efecto que no lo es: `hashlib` llama a
+`logging.error()` al importarse, lo que **deja el logger raíz ya configurado**
+y convierte cualquier `logging.basicConfig()` posterior en un no-op. Por eso
+`setup_logging()` usa `force=True`; sin ello el programa no imprimía nada.
+
+Para eliminarlo de raíz, recompila el intérprete:
+
+```bash
+brew install openssl@3
+PYTHON_CONFIGURE_OPTS="--with-openssl=$(brew --prefix openssl@3)" \
+  pyenv install -f 3.13.11
 ```
 
 Opciones: `--no-convert`, `--no-artwork`, `--no-musicbrainz`, `--wait 60`.

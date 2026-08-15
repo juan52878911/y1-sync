@@ -6,11 +6,19 @@ from pathlib import Path
 log = logging.getLogger("y1sync")
 
 def setup_logging(verbose: bool = False) -> None:
+    """Configura el log.
+
+    force=True es imprescindible: si el interprete tiene un hashlib incompleto
+    (pyenv compilado contra una OpenSSL sin blake2), este emite logging.error()
+    al importarse y deja el logger raiz ya configurado en WARNING sobre stderr.
+    Sin force, basicConfig seria un no-op y toda la salida INFO se perderia.
+    """
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s  %(levelname)-7s %(message)s",
         datefmt="%H:%M:%S",
         stream=sys.stdout,
+        force=True,
     )
 
 def nfc(s: str | None) -> str:
