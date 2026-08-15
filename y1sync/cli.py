@@ -49,7 +49,7 @@ def sync(card: Path, *, dry: bool = False, no_mb: bool = False,
             if not no_convert and audio.needs_conversion(fila["samplerate"], fila["bits"]):
                 log.info("  %s esta a %d Hz/%d bits", p.name, fila["samplerate"], fila["bits"])
                 if not dry:
-                    ok, antes, despues = audio.convert(p, card)
+                    ok, antes, despues = audio.convert(p, card, fila["samplerate"], fila["bits"])
                     tocados.append(p)
                     if ok:
                         stats["converted"] += 1
@@ -134,6 +134,56 @@ def sync(card: Path, *, dry: bool = False, no_mb: bool = False,
     con.close()
     return 0
 
+def normalize(card: Path, *, dry: bool = False, workers: int = 4) -> int:
+    """Lleva TODA la biblioteca a 44,1 kHz / 16 bits.
+
+    El Y1 entrega 16 bits fijos, asi que los 24 bits de origen se descartan en
+    la reproduccion de todos modos: reducirlos no cambia lo que se oye en este
+    aparato y libera bastante espacio. Los originales quedan en BACKUP_DIR.
+    """
+    con = db.connect()
+    filas = con.execute(
+        "SELECT path, samplerate, bits FROM tracks "
+        "WHERE samplerate>0 AND (samplerate<>? OR bits>?) ORDER BY path",
+        (44100, 16)).fetchall()
+    items, faltan = [], 0
+    for r in filas:
+        p = card / r["path"]
+        if p.exists():
+            items.append((p, r["samplerate"], r["bits"]))
+        else:
+            faltan += 1
+    total = sum(p.stat().st_size for p, _, _ in items)
+    log.info("Pistas a normalizar: %d  (%s)%s", len(items), human(total),
+             f"  [{faltan} ya no estan en la tarjeta]" if faltan else "")
+    if not items:
+        return 0
+    if dry:
+        for p, rate, bits in items[:10]:
+            log.info("  [simulacion] %s  %d Hz / %d bits", p.name[:52], rate, bits)
+        if len(items) > 10:
+            log.info("  ... y %d mas", len(items) - 10)
+        return 0
+
+    ok, antes, despues = audio.convert_many(items, card, workers)
+    # refrescar la base con los valores reales tras convertir
+    actualizadas = 0
+    for p, _, _ in items:
+        fila = scan.read_track(card, p)
+        if fila:
+            con.execute("UPDATE tracks SET samplerate=?, bits=?, filesize=? WHERE path=?",
+                        (fila["samplerate"], fila["bits"], fila["filesize"], fila["path"]))
+            actualizadas += 1
+    con.commit()
+    macos.clean_paths([p for p, _, _ in items])
+    log.info("-" * 58)
+    log.info("Convertidas   : %d de %d", ok, len(items))
+    log.info("Espacio       : %s -> %s  (%s liberados)",
+             human(antes), human(despues), human(antes - despues))
+    log.info("Base al dia   : %d filas", actualizadas)
+    con.close()
+    return 0
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="y1sync", description="Gestor de la biblioteca del Innioasis Y1")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -147,6 +197,11 @@ def main(argv=None) -> int:
     s.add_argument("-v", "--verbose", action="store_true")
     st = sub.add_parser("stats", help="resumen de la biblioteca")
     st.add_argument("-v", "--verbose", action="store_true")
+    nz = sub.add_parser("normalize", help="lleva toda la biblioteca a 44,1 kHz / 16 bits")
+    nz.add_argument("--path", type=Path)
+    nz.add_argument("--dry-run", action="store_true")
+    nz.add_argument("-j", "--workers", type=int, default=4)
+    nz.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
     setup_logging(getattr(a, "verbose", False))
 
@@ -161,6 +216,13 @@ def main(argv=None) -> int:
                              "GROUP BY genre ORDER BY c DESC"):
             print(f"    {r[0]:<20}{r[1]}")
         return 0
+
+    if a.cmd == "normalize":
+        card = a.path or CARD_ROOT
+        if not (card / MUSIC_DIR).is_dir():
+            log.error("Tarjeta no encontrada.")
+            return 1
+        return normalize(card, dry=a.dry_run, workers=a.workers)
 
     card = a.path or wait_for_card(a.wait)
     if not card or not (card / MUSIC_DIR).is_dir():

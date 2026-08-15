@@ -6,4 +6,4 @@
 # salida. El arreglo de fondo es recompilar Python; ver README.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
-exec python3 -m y1sync "$@" 2> >(grep -vE "blake2|hashlib\.py|__get_|globals\(\)|unsupported hash|~~~|\^\^\^|^Traceback|^ERROR:root:code|^ *File \"|^ *return |^ *raise ValueError" >&2)
+exec python3 -u -m y1sync "$@" 2> >(grep -vE "blake2|hashlib\.py|__get_|globals\(\)|unsupported hash|~~~|\^\^\^|^Traceback|^ERROR:root:code|^ *File \"|^ *return |^ *raise ValueError" >&2)
