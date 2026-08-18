@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse, collections, sys, time
 from pathlib import Path
-from . import db, scan, audio, tags, genres, artwork, playlists, plays, macos
+from . import db, scan, audio, tags, genres, artwork, playlists, plays, macos, stations
 from .config import CARD_ROOT, MUSIC_DIR, ARTWORK_MAX
 from .util import setup_logging, log, nfc, human
 
@@ -108,6 +108,7 @@ def sync(card: Path, *, dry: bool = False, no_mb: bool = False,
         playlists.repair(con, card)
         playlists.reindex(con, card)
         stats["plays_added"] = plays.ingest(con, card)
+        stations.generar(con, card)
         # La segunda limpieza solo hace falta si escribimos en la tarjeta;
         # cada pasada recorre el arbol entero por USB.
         if tocados:
@@ -197,6 +198,10 @@ def main(argv=None) -> int:
     s.add_argument("-v", "--verbose", action="store_true")
     st = sub.add_parser("stats", help="resumen de la biblioteca")
     st.add_argument("-v", "--verbose", action="store_true")
+    ra = sub.add_parser("stations", help="regenera las emisoras desde el historial")
+    ra.add_argument("--path", type=Path)
+    ra.add_argument("--limit", type=int, default=150)
+    ra.add_argument("-v", "--verbose", action="store_true")
     nz = sub.add_parser("normalize", help="lleva toda la biblioteca a 44,1 kHz / 16 bits")
     nz.add_argument("--path", type=Path)
     nz.add_argument("--dry-run", action="store_true")
@@ -215,6 +220,16 @@ def main(argv=None) -> int:
         for r in con.execute("SELECT genre,COUNT(*) c FROM tracks WHERE genre<>'' "
                              "GROUP BY genre ORDER BY c DESC"):
             print(f"    {r[0]:<20}{r[1]}")
+        return 0
+
+    if a.cmd == "stations":
+        card = a.path or CARD_ROOT
+        if not (card / MUSIC_DIR).is_dir():
+            log.error("Tarjeta no encontrada.")
+            return 1
+        con = db.connect()
+        stations.generar(con, card, a.limit)
+        con.close()
         return 0
 
     if a.cmd == "normalize":

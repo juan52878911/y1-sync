@@ -16,6 +16,34 @@ y lo registra todo en una base de datos.
 7. **Repara playlists** rotas.
 8. **Importa el historial** de reproducción de Rockbox.
 9. **Registra** todo en SQLite.
+10. **Genera emisoras** en `/Playlists/` desde tu historial de escucha.
+
+## Emisoras
+
+Rockbox trae un sistema de recomendación propio (`autoscore` + `playcount`),
+pero **en el port del Y1 hace reventar la aplicación** — ver
+[docs/rockbox-skin-render-crash.md](docs/rockbox-skin-render-crash.md).
+
+`y1sync` lo sustituye: puntúa cada pista desde `playback.log` (que sí funciona)
+y materializa el resultado como playlists `.m3u8`, que Rockbox reproduce sin
+tocar la tagcache.
+
+| Emisora | Criterio |
+|---|---|
+| **Mis favoritas** | Escuchada entera ≥1 vez y promedio ≥60% |
+| **Joyas ocultas** | Promedio ≥70% pero ≤2 reproducciones |
+| **Rescate** | Hace más tiempo que no suenan |
+| **Muy escuchadas** | Por número de reproducciones |
+| **Descartes** | ≥3 reproducciones con promedio <25% |
+| **Sin estrenar** | Nunca reproducidas |
+
+```bash
+./bin/y1sync stations            # regenerar a mano
+./bin/y1sync stations --limit 300
+```
+
+Se regeneran solas en cada `sync`. La puntuación es **por pista, no por
+artista**: un mismo artista puede aparecer en favoritas y en descartes.
 
 ## Instalación
 
