@@ -60,9 +60,27 @@ static long audio_stack[(DEFAULT_STACK_SIZE + 0x1000)/sizeof(long)];
 
 Verificado en la tabla de simbolos: `audio_stack` pasa de `0x4800` a `0x7800`.
 
+## Las guardas defensivas se descartaron
+
+Se probaron cuatro guardas mas (NULL en `get_skin_buffer`, comprobacion del
+buffer en `skin_render`/`skin_render_viewport`, puntero rancio en
+`skin_data_free_buflib_allocs`, y `skin_data_load` devolviendo `false` al
+fallar `core_alloc`). **Ninguna se conserva.**
+
+La ultima resulto danina: al convertir la carga a medias en un fallo limpio,
+Rockbox caia al WPS integrado y el usuario **perdia su tema** (sin caratula ni
+indicador de volumen). Verificado por bisección en el aparato — control limpio
+con tema original + binario original, que es la prueba que debio hacerse
+primero. El comportamiento "incorrecto" que se pretendia arreglar era justo lo
+que hacia que el tema se viera bien.
+
+Las otras tres protegian contra sintomas que la correccion de pila elimina de
+raiz. Con menos cambios, el resultado es mejor.
+
 ## Dos bugs independientes encontrados por el camino
 
-Son reales, verificables y merecen ir a upstream aunque no causaran este fallo.
+Son reales y verificables, y merecen ir a upstream **como parches propios**, no
+como parte de esta correccion. No causaban este fallo.
 
 **1. Puntero rancio en `skin_data_free_buflib_allocs`** (`skin_parser.c:1911`).
 `skin_buffer` es un estatico de fichero (linea 87). Solo se reasignaba si

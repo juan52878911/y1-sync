@@ -88,6 +88,17 @@ resumen() {
     ' "$LOG" 2>/dev/null
 }
 
+# El contador viaja en el NOMBRE del archivo porque el motor de temas no puede
+# leer ficheros: solo ve %pn, el nombre de la lista en curso. Es la unica via
+# para que una alerta de descubrimiento llegue a la pantalla sin tocar el nucleo.
+sin_estrenar() {
+    origen="$1"
+    n=$(wc -l < "$origen" 2>/dev/null | tr -d ' ')
+    [ -z "$n" ] || [ "$n" = "0" ] && { rm -f "$origen"; return 1; }
+    rm -f "$DIR"/"Radio - Sin estrenar"*.m3u8 2>/dev/null
+    mv "$origen" "$DIR/Radio - Sin estrenar ($n).m3u8"
+}
+
 escribe() {
     nombre="$1"; filtro="$2"; shift 2
     tmp="$DIR/.$nombre.tmp"
@@ -122,7 +133,7 @@ genera() {
         if [ -s "$CACHE" ]; then
             tmp="$DIR/.sin.tmp"
             head -n "$LIMITE" "$CACHE" > "$tmp" 2>/dev/null
-            [ -s "$tmp" ] && mv "$tmp" "$DIR/Radio - Sin estrenar.m3u8" || rm -f "$tmp"
+            sin_estrenar "$tmp"
             diag "historial vacio: solo 'Sin estrenar'"
             return 0
         fi
@@ -140,7 +151,7 @@ genera() {
         tmp="$DIR/.sin.tmp"
         echo "$RESUMEN" | cut -f5- | sort > /data/local/tmp/y1_oidas.txt
         comm -23 "$CACHE" /data/local/tmp/y1_oidas.txt 2>/dev/null | head -n "$LIMITE" > "$tmp"
-        [ -s "$tmp" ] && mv "$tmp" "$DIR/Radio - Sin estrenar.m3u8" || rm -f "$tmp"
+        sin_estrenar "$tmp"
         rm -f /data/local/tmp/y1_oidas.txt
     fi
     return 0
