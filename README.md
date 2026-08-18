@@ -85,7 +85,33 @@ La versión actual:
 6. Inventario cacheado 24 h: el `find` no se repite en cada ciclo.
 7. Instancia única mediante archivo de PID.
 
+8. **Ciclo sin forks**: la detección de cambios usa `-nt`, primitiva del
+   shell. Antes cada ciclo gastaba un `stat` y un `cat`.
+9. **Espera adaptativa**: 90 s con escucha activa, 5 min tras ~15 min sin
+   novedades, 15 min tras una hora. Cada despertar evitado es CPU dormida.
+
 Escribe diagnóstico en `/data/local/tmp/y1radio.log`.
+
+#### Consumo medido en el aparato
+
+```
+CPU      0,11 s acumulada en 150 s de vida, incluyendo 3 regeneraciones
+RAM      600 kB  (0,12 % de los 494 MB del Y1)
+Hilos    1
+```
+
+En reposo el único proceso que lanza cada ciclo es `sleep`.
+
+#### Dos trampas de FAT32 que costaron encontrar
+
+La marca de tiempo **debe vivir en la misma partición que el log**. FAT32
+redondea las fechas a 2 s, así que una marca en `/data` (ext4) quedaba siempre
+"más vieja" y `-nt` daba verdadero para siempre: regeneraba en cada ciclo.
+
+Y aun en la misma partición, hay que **fechar la marca 5 s por delante**
+(`touch -t $(( $(date +%s) + 5 ))`), o el redondeo provoca una regeneración
+extra por cada cambio real. Este busybox no admite `touch -d @epoch`, pero sí
+`touch -t time_t`.
 
 #### Si algo va mal
 

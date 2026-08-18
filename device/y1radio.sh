@@ -14,17 +14,24 @@
 #   5. prioridad baja (nice) para no competir con la reproduccion
 #   6. el inventario completo se cachea; el `find` no se repite cada ciclo
 #   7. instancia unica: si ya hay un demonio vivo, este sale
+#   8. ciclo sin forks: la deteccion de cambios usa `-nt`, primitiva del shell
+#   9. espera adaptativa: si no escuchas, despierta cada vez menos
 
 LOG=/sdcard/.rockbox/playback.log
 DIR=/sdcard/Playlists
 OFF=/sdcard/y1radio.off
-STAMP=/data/local/tmp/y1radio.stamp
+# La marca va en la MISMA particion que el log, no en /data: FAT32 redondea
+# las fechas a 2 s y una marca en ext4 quedaba siempre "mas vieja", con lo que
+# `-nt` daba verdadero siempre y regeneraba en cada ciclo.
+STAMP=/sdcard/.y1radio.stamp
 CACHE=/data/local/tmp/y1radio.todas
 DIAG=/data/local/tmp/y1radio.log
 PIDF=/data/local/tmp/y1radio.pid
 
 GRACIA=${Y1RADIO_GRACE:-180}      # segundos tras boot_completed antes de trabajar
-INTERVALO=${Y1RADIO_INTERVAL:-90}
+INTERVALO=${Y1RADIO_INTERVAL:-90} # espera base, con escucha activa
+INT_MEDIO=300                     # tras ~15 min sin cambios
+INT_LARGO=900                     # tras ~1 h sin cambios
 LIMITE=${Y1RADIO_LIMIT:-150}
 COMPLETA=75
 CACHE_TTL=86400                   # rehacer el inventario como mucho 1 vez/dia
@@ -139,17 +146,31 @@ genera() {
     return 0
 }
 
+# --- 8/9. bucle sin forks y con espera adaptativa ------------------------
+# `-nt` compara fechas SIN lanzar procesos: antes cada ciclo gastaba un `stat`
+# y un `cat`. Ahora el unico proceso del ciclo es el propio `sleep`.
+# Y si no hay escuchas, se espacia: 90 s -> 5 min -> 15 min. Cada despertar
+# evitado es CPU que puede seguir dormida.
+inactivo=0
+espera=$INTERVALO
 while true; do
-    # --- 4. interruptor de apagado, creable desde el Mac -----------------
     [ -f "$OFF" ] && { diag "encontrado y1radio.off, salgo"; exit 0; }
 
-    if [ -r "$LOG" ]; then
-        actual=$(stat -c %Y%s "$LOG" 2>/dev/null)
-        previo=$(cat "$STAMP" 2>/dev/null)
-        if [ "$actual" != "$previo" ] && genera; then
-            echo "$actual" > "$STAMP"
+    if [ -r "$LOG" ] && [ "$LOG" -nt "$STAMP" ]; then
+        if genera; then
+            # La marca se fecha 5 s por delante: FAT32 redondea a 2 s y sin
+            # ese margen `-nt` volvia a dar verdadero una vez mas, provocando
+            # una regeneracion extra por cada cambio real.
+            touch -t $(( $(date +%s) + 5 )) "$STAMP" 2>/dev/null || : > "$STAMP" 2>/dev/null
             diag "emisoras regeneradas"
+            inactivo=0
+            espera=$INTERVALO
+        fi
+    else
+        inactivo=$((inactivo + 1))
+        if   [ "$inactivo" -ge 20 ]; then espera=$INT_LARGO
+        elif [ "$inactivo" -ge 10 ]; then espera=$INT_MEDIO
         fi
     fi
-    sleep "$INTERVALO"
+    sleep "$espera"
 done
