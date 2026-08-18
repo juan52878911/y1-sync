@@ -129,6 +129,40 @@ brew install flac ffmpeg          # metaflac y ffmpeg
 ./scripts/install-agent.sh        # sincroniza sola al conectar
 ```
 
+## `y1sync doctor`
+
+Revisa la salud de la biblioteca. Cada comprobacion existe porque el fallo
+correspondiente ocurrio de verdad y costo horas encontrarlo a mano.
+
+```bash
+y1sync doctor              # ~7 min sobre 2.859 archivos por USB
+y1sync doctor --deep       # ademas decodifica todo (mucho mas lento)
+```
+
+Devuelve codigo 1 si encuentra algo, para poder encadenarlo en un script.
+
+### Que mira, y por que
+
+| Comprobacion | El caso real que la origino |
+|---|---|
+| Archivos ilegibles | 14 pistas de Children Of Bodom a 0 Hz que no suenan |
+| Duplicados por **MD5 del audio** | agrupar por titulo+artista daba 88 falsos positivos |
+| Mismo titulo en toda la carpeta | REI AMI / FOIL: las 10 pistas decian `F.R.A.` |
+| Artista ajeno al album | pistas de Slipknot atribuidas a `Darby` y `The Bloodclan` |
+| ReplayGain ausente o `NaN` | 42% sin etiqueta y `ALBUM_GAIN=NaN` en la mitad |
+| Playlists con entradas muertas | borrar duplicados dejo rutas colgando |
+
+**El MD5 es el nucleo del chequeo de duplicados.** FLAC guarda en STREAMINFO
+el MD5 del audio ya decodificado, asi que comparar esa firma prueba que dos
+archivos suenan igual sin decodificar nada. Agrupar por etiquetas no sirve:
+en esta biblioteca REI AMI tenia 10 pistas *distintas* con el mismo titulo, y
+borrarlas por nombre habria destruido el disco entero.
+
+**La regla de artista discordante solo salta si no comparte ninguna palabra**
+con el artista dominante del album. Sin ese matiz, `Architects; Winston McCall`
+y `$uicideboy$ & Germ` producian 65 falsos positivos; con el, quedan 8 casos
+que son sospechas reales.
+
 ## Uso manual
 
 ```bash

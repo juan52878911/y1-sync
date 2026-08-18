@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse, collections, sys, time
 from pathlib import Path
-from . import db, scan, audio, tags, genres, artwork, playlists, plays, macos, stations
+from . import db, scan, audio, tags, genres, artwork, playlists, plays, macos, stations, doctor
 from .config import CARD_ROOT, MUSIC_DIR, ARTWORK_MAX
 from .util import setup_logging, log, nfc, human
 
@@ -202,6 +202,14 @@ def main(argv=None) -> int:
     ra.add_argument("--path", type=Path)
     ra.add_argument("--limit", type=int, default=150)
     ra.add_argument("-v", "--verbose", action="store_true")
+    dc = sub.add_parser("doctor", help="revisa la salud de la biblioteca")
+    dc.add_argument("--path", type=Path)
+    dc.add_argument("--deep", action="store_true",
+                    help="decodifica cada archivo para detectar corrupcion (lento)")
+    dc.add_argument("--detail", type=int, default=5, metavar="N",
+                    help="cuantos ejemplos mostrar por problema")
+    dc.add_argument("-j", "--workers", type=int, default=8)
+    dc.add_argument("-v", "--verbose", action="store_true")
     nz = sub.add_parser("normalize", help="lleva toda la biblioteca a 44,1 kHz / 16 bits")
     nz.add_argument("--path", type=Path)
     nz.add_argument("--dry-run", action="store_true")
@@ -221,6 +229,16 @@ def main(argv=None) -> int:
                              "GROUP BY genre ORDER BY c DESC"):
             print(f"    {r[0]:<20}{r[1]}")
         return 0
+
+    if a.cmd == "doctor":
+        card = a.path or CARD_ROOT
+        if not (card / MUSIC_DIR).is_dir():
+            log.error("Tarjeta no encontrada en %s", card)
+            return 1
+        h = doctor.revisar(card, profundo=a.deep, workers=a.workers)
+        # Codigo de salida distinto de cero si hay algo que mirar: asi sirve
+        # dentro de un script de sincronizacion automatica.
+        return 1 if doctor.informe(h, detalle=a.detail) else 0
 
     if a.cmd == "stations":
         card = a.path or CARD_ROOT
