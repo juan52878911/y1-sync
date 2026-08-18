@@ -1,0 +1,328 @@
+--- /dev/null
++++ b/apps/gui/skin_engine/skin_anim.c
++/* Fondo procedural animado bajo el WPS.
++ *
++ * La transparencia NO se implementa aqui: ya la da el mecanismo de backdrop
++ * del LCD. Con lcd_set_backdrop() activo, lcd_clear_viewport() copia pixeles
++ * del backdrop en vez de rellenar con bg_pattern (lcd-16bit-common.c:61), y
++ * los rellenos DRMODE_BG leen de ahi. El texto se dibuja en DRMODE_FG, o sea
++ * solo la tinta. Resultado: lo que en el tema es "fondo negro" pasa a ser
++ * "pixel del fondo animado", sin tocar el .wps.
++ */
++#include "config.h"
++#include <string.h>
++#include "lcd.h"
++#include "screen_access.h"
++#include "skin_engine.h"
++#include "kernel.h"
++
++#if LCD_DEPTH > 1
++
++/* Buffer propio en BSS, NO en buflib: 345.600 bytes sobre 494 MB es el 0,07%
++ * de la RAM y evita punteros movibles. Buflib acaba de darnos un problema de
++ * corrupcion y no conviene volver a cargarlo. */
++static fb_data anim_fb[LCD_FBHEIGHT * LCD_FBWIDTH];
++
++static bool anim_on = false;
++bool skin_anim_pass = false;      /* lo consulta skin_render para saltar el clear */
++
++/* Tablas enteras, sin coma flotante: el MT6572 no tiene FPU util aqui. */
++static unsigned char onda[256];
++static fb_data paleta[256];
++static unsigned t1, t2, t3, t4;
++static bool tablas_listas = false;
++
++static short seno[256];
++
++static void construye_tablas(void)
++{
++    int i;
++    /* Seno entero real (-127..127) por interpolacion de dos parabolas: mas
++     * fiel que la aproximacion anterior y sigue sin usar coma flotante. */
++    for (i = 0; i < 256; i++)
++    {
++        int x = i - 128;
++        int y = (x * (128 - (x < 0 ? -x : x))) >> 5;
++        seno[i] = (short)((y * 127) / 128);
++    }
++    tablas_listas = true;
++}
++
++/* Paleta de dos tonos, no arcoiris: rojo profundo y azul acero con pliegues
++ * casi negros, que es el aire del fondo de Balatro. El signo del valor elige
++ * el tono y su magnitud la luminosidad. */
++static void construye_paleta(unsigned fase)
++{
++    int i;
++    for (i = 0; i < 256; i++)
++    {
++        int v = seno[(i + fase) & 0xFF];        /* -127..127 */
++        int m = v < 0 ? -v : v;                 /* 0..127 */
++        int r, g, b;
++        if (v >= 0)
++        {
++            /* rojo: de casi negro a carmesi encendido */
++            r = 40 + (m * 175) / 127;
++            g = 8  + (m * 42)  / 127;
++            b = 12 + (m * 38)  / 127;
++        }
++        else
++        {
++            /* azul: de casi negro a azul acero claro */
++            r = 14 + (m * 60)  / 127;
++            g = 26 + (m * 105) / 127;
++            b = 45 + (m * 150) / 127;
++        }
++        paleta[i] = LCD_RGBPACK(r, g, b);
++    }
++}
++
++void skin_anim_enable(bool on)
++{
++    extern bool lcd_scroll_no_update;
++    anim_on = on;
++    lcd_scroll_no_update = on;
++    if (on && !tablas_listas)
++        construye_tablas();
++}
++
++bool skin_anim_enabled(void)
++{
++    return anim_on;
++}
++
++fb_data *skin_anim_buffer(void)
++{
++    return anim_fb;
++}
++
++/* Genera un fotograma en anim_fb. Coste dominante: un bucle por pixel con
++ * dos sumas, dos lecturas de tabla de 256 B (caben en L1) y un store. */
++void skin_anim_step(void)
++{
++    unsigned x, y;
++    fb_data *p = anim_fb;
++
++    construye_paleta(t1 >> 3);
++
++    for (y = 0; y < LCD_HEIGHT; y++)
++    {
++        /* Deformacion de dominio: la coordenada se desplaza segun una onda que
++         * depende de la OTRA coordenada. Eso curva las bandas y produce el
++         * aspecto de liquido en remolino en vez de rejilla de plasma. */
++        int wy = seno[(y + t2) & 0xFF];
++        int wy2 = seno[((y >> 1) + t3) & 0xFF];
++        for (x = 0; x < LCD_WIDTH; x++)
++        {
++            int u = x + (wy >> 1);
++            int v = y + (seno[(x + t1) & 0xFF] >> 1);
++            int q = seno[(u + t3) & 0xFF]
++                  + seno[(v + t4) & 0xFF]
++                  + (seno[((u + v) >> 1) & 0xFF] >> 1)
++                  + (wy2 >> 1);
++            *p++ = paleta[(q >> 1) & 0xFF];
++        }
++    }
++    t1 += 1; t2 += 2; t3 += 1; t4 += 3;
++}
++
++/* Un fotograma completo: efecto -> framebuffer -> el tema encima -> update.
++ * El blit cubre TODA la pantalla, incluidos los huecos entre viewports y los
++ * que la condicional del tema deja ocultos. */
++void skin_anim_frame(enum skinnable_screens skin)
++{
++    extern struct frame_buffer_t lcd_framebuffer_default;
++
++    /* Con la pantalla apagada el port no entrega nada (lcd-android.c:92
++     * comprueba display_on), asi que calcular el efecto seria quemar bateria
++     * a ciegas. El temporizador de pantalla del usuario esta en 15 s, o sea
++     * que la mayor parte del tiempo de escucha cae en este caso. */
++    if (!anim_on || !lcd_active())
++        return;
++
++    skin_anim_step();
++    memcpy(lcd_framebuffer_default.data, anim_fb,
++           LCD_FBHEIGHT * LCD_FBWIDTH * sizeof(fb_data));
++
++    /* skin_render no debe llamar clear_viewport durante este pase: ese clear
++     * para las marquesinas (lcd_scroll_stop) y al re-registrarlas arrancan de
++     * cero, con lo que el texto largo no avanzaria nunca a 15 fps. */
++    skin_anim_pass = true;
++    skin_update(skin, SCREEN_MAIN, SKIN_REFRESH_ALL);
++    skin_anim_pass = false;
++}
++
++#endif /* LCD_DEPTH > 1 */
+--- a/apps/gui/skin_engine/skin_backdrops.c
++++ b/apps/gui/skin_engine/skin_backdrops.c
+@@ -268,6 +268,17 @@
+ 
+ void skin_backdrop_show(int backdrop_id)
+ {
++#if LCD_DEPTH > 1
++    /* Punto de estrangulamiento unico: skin_render llama aqui por cada
++     * viewport. Devolviendo nuestro buffer, todo el mecanismo de composicion
++     * transparente del LCD trabaja sobre el fondo animado sin tocar el tema. */
++    if (skin_anim_enabled())
++    {
++        screens[SCREEN_MAIN].backdrop_show(skin_anim_buffer());
++        current_lcd_backdrop[SCREEN_MAIN] = -1;
++        return;
++    }
++#endif
+     if (backdrop_id < 0)
+     {
+         screens[0].backdrop_show(NULL);
+--- a/apps/gui/skin_engine/skin_render.c
++++ b/apps/gui/skin_engine/skin_render.c
+@@ -913,7 +913,14 @@
+ 
+         display->set_viewport_ex(&skin_viewport->vp, VP_FLAG_VP_SET_CLEAN);
+ 
+-        if ((vp_refresh_mode&SKIN_REFRESH_ALL) == SKIN_REFRESH_ALL)
++        if ((vp_refresh_mode&SKIN_REFRESH_ALL) == SKIN_REFRESH_ALL
++#if LCD_DEPTH > 1
++            /* En el pase animado el fondo ya esta pintado. Limpiar aqui
++             * llamaria a lcd_scroll_stop() y las marquesinas reiniciarian su
++             * desplazamiento en cada fotograma: el texto largo no avanzaria. */
++            && !skin_anim_pass
++#endif
++           )
+         {
+             display->clear_viewport();
+         }
+--- a/apps/gui/skin_engine/skin_display.c
++++ b/apps/gui/skin_engine/skin_display.c
+@@ -68,6 +68,10 @@
+ #include "wps.h"
+ #include "wps_internals.h"
+ #include "skin_engine.h"
++
++/* 15 fps: suficiente para fluidez, ~10-20% de un nucleo del MT6572.
++ * El cuello real medido no es el efecto sino el volcado JNI a pantalla. */
++#define SKIN_ANIM_FPS 15
+ #include "statusbar-skinned.h"
+ #include "skin_display.h"
+ 
+@@ -741,7 +745,37 @@
+     {
+        if(skin_get_gwps(skin, i)->data->peak_meter_enabled)
+            pm = true;
++    }
++#if LCD_DEPTH > 1
++    /* El fondo animado necesita refrescos periodicos igual que el medidor de
++     * picos, asi que se integra en el MISMO sub-bucle en vez de anidar otro:
++     * dos bucles compitiendo por get_action se robarian las pulsaciones. */
++    bool anim = skin_anim_enabled() && skin == WPS;
++    if (anim) {
++        long sig_anim = current_tick;
++        long sig_pm = current_tick;
++        long fin = current_tick + timeout;
++        button = BUTTON_NONE;
++        while (TIME_BEFORE(current_tick, fin)) {
++            button = get_action(context, TIMEOUT_NOBLOCK);
++            if (button != ACTION_NONE)
++                break;
++            if (pm)
++                peak_meter_peek();
++            sleep(0);
++            if (TIME_AFTER(current_tick, sig_anim)) {
++                skin_anim_frame(skin);
++                sig_anim = current_tick + HZ / SKIN_ANIM_FPS;
++                sig_pm = sig_anim;      /* el pase animado ya redibujo todo */
++            }
++            else if (pm && TIME_AFTER(current_tick, sig_pm)) {
++                skin_update(skin, SCREEN_MAIN, SKIN_REFRESH_PEAK_METER);
++                sig_pm = current_tick + HZ / PEAK_METER_FPS;
++            }
++        }
++        return button;
+     }
++#endif
+ 
+     if (pm) {
+         long next_refresh = current_tick;
+--- a/apps/gui/skin_engine/skin_engine.h
++++ b/apps/gui/skin_engine/skin_engine.h
+@@ -85,5 +85,15 @@
+ 
+ bool dbg_skin_engine(void);
+ 
++/* Fondo animado bajo el WPS (skin_anim.c) */
++#if LCD_DEPTH > 1
++extern bool skin_anim_pass;
++void skin_anim_enable(bool on);
++bool skin_anim_enabled(void);
++fb_data *skin_anim_buffer(void);
++void skin_anim_step(void);
++void skin_anim_frame(enum skinnable_screens skin);
++#endif
++
+ #endif /* !PLUGIN */
+ #endif
+--- a/apps/gui/wps.c
++++ b/apps/gui/wps.c
+@@ -537,6 +537,11 @@
+ 
+ static void gwps_leave_wps(bool theme_enabled)
+ {
++#if LCD_DEPTH > 1
++    /* Apagar ANTES de restaurar el backdrop del statusbar: si no,
++     * skin_backdrop_show seguiria devolviendo el buffer animado. */
++    skin_anim_enable(false);
++#endif
+     FOR_NB_SCREENS(i)
+     {
+         struct gui_wps *gwps = skin_get_gwps(WPS, i);
+@@ -582,6 +587,10 @@
+  * display the wps on entering or restoring */
+ static void gwps_enter_wps(bool theme_enabled)
+ {
++#if LCD_DEPTH > 1
++    if (theme_enabled)
++        skin_anim_enable(true);
++#endif
+     struct gui_wps *gwps;
+     struct screen *display;
+     if (theme_enabled)
+--- a/apps/SOURCES
++++ b/apps/SOURCES
+@@ -103,6 +103,7 @@
+ #endif
+ gui/viewport.c
+ 
++gui/skin_engine/skin_anim.c
+ gui/skin_engine/skin_backdrops.c
+ gui/skin_engine/skin_display.c
+ gui/skin_engine/skin_engine.c
+--- a/firmware/drivers/lcd-scroll.c
++++ b/firmware/drivers/lcd-scroll.c
+@@ -33,6 +33,12 @@
+ #if !defined(BOOTLOADER)
+ static struct scrollinfo LCDFN(scroll)[LCDM(SCROLLABLE_LINES)];
+ 
++/* Con un fondo animado repintando la pantalla entera, los volcados parciales
++ * de la marquesina sobran: en el port Android update_viewport_rect entrega la
++ * PANTALLA COMPLETA por JNI, y entregarla a medio componer es lo que producia
++ * el parpadeo en titulo, tiempo y barras (no en lo estatico). */
++bool LCDFN(scroll_no_update) = false;
++
+ struct scroll_screen_info LCDFN(scroll_info) =
+ {
+     .scroll       = LCDFN(scroll),
+@@ -172,7 +178,14 @@
+     drawmode   = s->vp->drawmode;
+     s->scroll_func(s);
+ 
+-    LCDFN(update_viewport_rect)(s->x, s->y, s->width, s->height);
++    /* Con un fondo animado por encima, cada linea en marquesina disparaba su
++     * propio volcado; y en el port Android update_viewport_rect entrega la
++     * PANTALLA ENTERA por JNI. El resultado eran fotogramas a medio componer:
++     * parpadeo en todo lo que se redibuja solo (titulo, tiempo, barras) y no
++     * en lo estatico (artista, caratula). El repintado completo a 15 fps ya
++     * se encarga de mostrarlo. */
++    if (!LCDFN(scroll_no_update))
++        LCDFN(update_viewport_rect)(s->x, s->y, s->width, s->height);
+ 
+ #if LCD_DEPTH > 1
+     s->vp->fg_pattern = fg_pattern;
