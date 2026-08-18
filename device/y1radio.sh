@@ -106,7 +106,21 @@ genera() {
     [ -r "$LOG" ] || return 1
     mkdir -p "$DIR" 2>/dev/null
     RESUMEN=$(resumen)
-    [ -n "$RESUMEN" ] || return 1
+
+    # Con el historial vacio (arranque en limpio) no hay nada que puntuar,
+    # pero "Sin estrenar" SI tiene sentido: son todas las pistas. Antes se
+    # salia aqui y no se generaba ninguna emisora.
+    if [ -z "$RESUMEN" ]; then
+        inventario
+        if [ -s "$CACHE" ]; then
+            tmp="$DIR/.sin.tmp"
+            head -n "$LIMITE" "$CACHE" > "$tmp" 2>/dev/null
+            [ -s "$tmp" ] && mv "$tmp" "$DIR/Radio - Sin estrenar.m3u8" || rm -f "$tmp"
+            diag "historial vacio: solo 'Sin estrenar'"
+            return 0
+        fi
+        return 1
+    fi
 
     escribe "Mis favoritas"  '$3>=1 && $1>=60 {print}'  -k3,3nr -k1,1nr
     escribe "Joyas ocultas"  '$1>=70 && $2<=2 {print}'  -k1,1nr
