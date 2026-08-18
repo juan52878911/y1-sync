@@ -42,8 +42,34 @@ tocar la tagcache.
 ./bin/y1sync stations --limit 300
 ```
 
-Se regeneran solas en cada `sync`. La puntuación es **por pista, no por
-artista**: un mismo artista puede aparecer en favoritas y en descartes.
+### Dos motores, el mismo criterio
+
+**En el aparato** (`device/y1radio.sh`) — un demonio en shell que vigila
+`playback.log` y regenera las emisoras cada 90 s **sin necesidad del Mac**.
+Se instala en `/system/etc/init.d/98Y1Radio` y arranca solo con el aparato.
+
+**En el Mac** (`y1sync stations`) — el mismo cálculo, útil al sincronizar y
+para depurar con la base SQLite completa.
+
+Se puede usar cualquiera de los dos: escriben los mismos archivos.
+
+La puntuación es **por pista, no por artista**: un mismo artista puede
+aparecer en favoritas y en descartes.
+
+### Instalar el motor en el Y1
+
+```bash
+adb shell mount -o remount,rw /system
+adb push device/y1radio.sh /system/etc/y1radio.sh
+adb push device/98Y1Radio  /system/etc/init.d/98Y1Radio
+adb shell chmod 755 /system/etc/y1radio.sh /system/etc/init.d/98Y1Radio
+adb shell mount -o remount,ro /system
+```
+
+El nombre `98` importa: `99Y1ButtonScript` (del port) tiene un bucle infinito,
+así que cualquier script posterior nunca se ejecutaría. El lanzador además se
+desacopla con `setsid` y devuelve el control de inmediato para no bloquear
+`run-parts`.
 
 ## Instalación
 

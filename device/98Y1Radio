@@ -1,0 +1,9 @@
+#!/system/bin/sh
+# Lanza el motor de emisoras SIN bloquear run-parts.
+#
+# Importante: 99Y1ButtonScript tiene un bucle infinito, asi que este script
+# debe ir antes en orden alfabetico Y devolver el control de inmediato, o las
+# combinaciones de botones del Y1 dejarian de funcionar.
+[ -x /system/etc/y1radio.sh ] || exit 0
+setsid /system/etc/y1radio.sh >/dev/null 2>&1 &
+exit 0
