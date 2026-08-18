@@ -172,5 +172,16 @@ while true; do
         elif [ "$inactivo" -ge 10 ]; then espera=$INT_MEDIO
         fi
     fi
-    sleep "$espera"
+    # El sueno se parte en tramos de 30 s: con la espera larga (900 s) el
+    # interruptor /sdcard/y1radio.off tardaba hasta 15 minutos en surtir
+    # efecto, inaceptable para un apagado de emergencia.
+    restante=$espera
+    while [ "$restante" -gt 0 ]; do
+        [ -f "$OFF" ] && { diag "encontrado y1radio.off, salgo"; exit 0; }
+        if [ "$restante" -gt 30 ]; then
+            sleep 30; restante=$((restante - 30))
+        else
+            sleep "$restante"; restante=0
+        fi
+    done
 done

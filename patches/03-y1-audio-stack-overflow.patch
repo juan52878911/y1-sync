@@ -1,0 +1,24 @@
+--- a/apps/audio_thread.c
++++ b/apps/audio_thread.c
+@@ -60,7 +60,21 @@
+ static struct queue_sender_list audio_queue_sender_list SHAREDBSS_ATTR;
+ 
+ /* Audio thread */
++/* Con runtimedb activo, PLAYBACK_EVENT_TRACK_BUFFER entra en este hilo a
++ * tagtree_buffer_event -> tagcache_find_index -> find_entry_disk, cuyo marco
++ * mide 4.724 bytes (medidos): en APPLICATION reserva char pathbuf[PATH_MAX]
++ * de 4 KB para realpath(). La cadena suma ~5,7 KB sobre una pila de 18.432
++ * (MINSIGSTKSZ vale 2048 en bionic, no 16384). Los hilos hosted corren sobre
++ * arrays de BSS sin pagina de guarda, asi que el desbordamiento no falla
++ * limpiamente: escribe sobre el BSS vecino, donde vive el pool de buflib, y
++ * aparece como "buflib error: block len wacky" o punteros salvajes en el
++ * motor de temas. El hilo de la tagcache ya lleva +0x4000 por esta razon
++ * (tagcache.c:305); se le da lo mismo al de audio, que ejecuta igual ruta. */
++#if defined(APPLICATION) && !defined(SIMULATOR)
++static long audio_stack[(DEFAULT_STACK_SIZE + 0x4000)/sizeof(long)];
++#else
+ static long audio_stack[(DEFAULT_STACK_SIZE + 0x1000)/sizeof(long)];
++#endif
+ static const char audio_thread_name[] = "audio";
+ unsigned int audio_thread_id = 0;
+ 
