@@ -71,6 +71,28 @@ así que cualquier script posterior nunca se ejecutaría. El lanzador además se
 desacopla con `setsid` y devuelve el control de inmediato para no bloquear
 `run-parts`.
 
+#### Protecciones del demonio
+
+Una primera versión hacía `find` sobre ~2800 archivos nada más arrancar, sobre
+una tarjeta que quizá ni estaba montada, y coincidió con un bucle de reinicio.
+La versión actual:
+
+1. Espera a `sys.boot_completed`, como hace el script del port.
+2. Periodo de gracia de 180 s antes de tocar nada.
+3. Espera a `/sdcard/Music` y **se rinde** si no aparece en 10 minutos.
+4. **Interruptor de apagado**: si existe `/sdcard/y1radio.off`, no arranca.
+5. Prioridad baja (`nice -n 19`).
+6. Inventario cacheado 24 h: el `find` no se repite en cada ciclo.
+7. Instancia única mediante archivo de PID.
+
+Escribe diagnóstico en `/data/local/tmp/y1radio.log`.
+
+#### Si algo va mal
+
+Monta la tarjeta en el ordenador y crea un archivo vacío llamado
+`y1radio.off` en su raíz. El demonio no volverá a arrancar. **No hace falta
+adb ni root** para recuperarse.
+
 ## Instalación
 
 ```bash
