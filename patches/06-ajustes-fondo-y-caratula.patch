@@ -1,0 +1,158 @@
+--- a/apps/settings.h
++++ b/apps/settings.h
+@@ -406,6 +406,12 @@
+     unsigned int crossfeed_hf_cutoff;           /* Frequency in Hz */
+ 
+     /* EQ */
++    bool anim_background; /* fondo animado en la pantalla de reproduccion */
++    int  anim_speed;      /* 1..5, velocidad del fondo */
++    int  anim_pattern;    /* 1..3, variante del patron */
++    bool anim_colors;     /* tomar los tonos del disco en curso */
++    bool aa_spin;         /* giro 3D de la caratula al cambiar de pista */
++    bool aa_pulse;        /* latido de la caratula al mover el volumen */
+     bool eq_enabled;            /* Enable equalizer */
+     unsigned int eq_precut;     /* dB */
+     struct eq_band_setting eq_band_settings[EQ_NUM_BANDS]; /* for each band */
+--- a/apps/settings_list.c
++++ b/apps/settings_list.c
+@@ -1735,6 +1735,16 @@
+                    ID2P(LANG_ALBUM_GAIN), ID2P(LANG_SHUFFLE_GAIN), ID2P(LANG_OFF)),
+     OFFON_SETTING(F_SOUNDSETTING, replaygain_settings.noclip,
+                   LANG_REPLAYGAIN_NOCLIP, false, "replaygain noclip", NULL),
++    OFFON_SETTING(0, anim_background, LANG_ANIM_BACKGROUND, true,
++                  "animated background", NULL),
++    INT_SETTING(0, anim_speed, LANG_ANIM_SPEED, 3, "background speed",
++                UNIT_INT, 1, 5, 1, NULL, NULL, NULL),
++    INT_SETTING(0, anim_pattern, LANG_ANIM_PATTERN, 1, "background pattern",
++                UNIT_INT, 1, 3, 1, NULL, NULL, NULL),
++    OFFON_SETTING(0, anim_colors, LANG_ANIM_COLORS, true,
++                  "background album colors", NULL),
++    OFFON_SETTING(0, aa_spin, LANG_AA_SPIN, true, "album art spin", NULL),
++    OFFON_SETTING(0, aa_pulse, LANG_AA_PULSE, true, "album art pulse", NULL),
+     INT_SETTING_NOWRAP(F_SOUNDSETTING, replaygain_settings.preamp,
+                        LANG_REPLAYGAIN_PREAMP, 0, "replaygain preamp",
+                        UNIT_DB, -120, 120, 5, db_format, get_dec_talkid, NULL),
+--- a/apps/menus/playback_menu.c
++++ b/apps/menus/playback_menu.c
+@@ -181,6 +181,16 @@
+ #endif
+ 
+ MENUITEM_SETTING(playback_log, &global_settings.playback_log, NULL);
++MENUITEM_SETTING(anim_background, &global_settings.anim_background, NULL);
++MENUITEM_SETTING(anim_speed, &global_settings.anim_speed, NULL);
++MENUITEM_SETTING(anim_pattern, &global_settings.anim_pattern, NULL);
++MENUITEM_SETTING(anim_colors, &global_settings.anim_colors, NULL);
++MENUITEM_SETTING(aa_spin, &global_settings.aa_spin, NULL);
++MENUITEM_SETTING(aa_pulse, &global_settings.aa_pulse, NULL);
++/* Submenu propio: seis opciones sueltas ensuciarian Playback Settings. */
++MAKE_MENU(anim_settings_menu, ID2P(LANG_ANIM_BACKGROUND), 0, Icon_NOICON,
++          &anim_background, &anim_speed, &anim_pattern, &anim_colors,
++          &aa_spin, &aa_pulse);
+ 
+ MAKE_MENU(playback_settings,ID2P(LANG_PLAYBACK),0,
+           Icon_Playback_menu,
+@@ -195,7 +205,7 @@
+           &crossfade_settings_menu,
+ #endif
+ 
+-          &replaygain_settings_menu, &beep,
++          &replaygain_settings_menu, &anim_settings_menu, &beep,
+ 
+ #ifdef HAVE_SPDIF_POWER
+           &spdif_enable,
+--- a/apps/lang/english.lang
++++ b/apps/lang/english.lang
+@@ -1563,9 +1563,93 @@
+   </dest>
+   <voice>
+     *: "Replaygain"
++  </voice>
++</phrase>
++<phrase>
++  id: LANG_ANIM_SPEED
++  desc: animated background settings
++  user: core
++  <source>
++    *: "Background speed"
++  </source>
++  <dest>
++    *: "Background speed"
++  </dest>
++  <voice>
++    *: "Background speed"
++  </voice>
++</phrase>
++<phrase>
++  id: LANG_ANIM_PATTERN
++  desc: animated background settings
++  user: core
++  <source>
++    *: "Background pattern"
++  </source>
++  <dest>
++    *: "Background pattern"
++  </dest>
++  <voice>
++    *: "Background pattern"
++  </voice>
++</phrase>
++<phrase>
++  id: LANG_ANIM_COLORS
++  desc: animated background settings
++  user: core
++  <source>
++    *: "Colors from album"
++  </source>
++  <dest>
++    *: "Colors from album"
++  </dest>
++  <voice>
++    *: "Colors from album"
++  </voice>
++</phrase>
++<phrase>
++  id: LANG_AA_SPIN
++  desc: animated background settings
++  user: core
++  <source>
++    *: "Album art spin"
++  </source>
++  <dest>
++    *: "Album art spin"
++  </dest>
++  <voice>
++    *: "Album art spin"
+   </voice>
+ </phrase>
+ <phrase>
++  id: LANG_AA_PULSE
++  desc: animated background settings
++  user: core
++  <source>
++    *: "Album art pulse"
++  </source>
++  <dest>
++    *: "Album art pulse"
++  </dest>
++  <voice>
++    *: "Album art pulse"
++  </voice>
++</phrase>
++<phrase>
++  id: LANG_ANIM_BACKGROUND
++  desc: animated wps background
++  user: core
++  <source>
++    *: "Animated background"
++  </source>
++  <dest>
++    *: "Animated background"
++  </dest>
++  <voice>
++    *: "Animated background"
++  </voice>
++</phrase>
++<phrase>
+   id: LANG_REPLAYGAIN_NOCLIP
+   desc: in replaygain
+   user: core
